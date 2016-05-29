@@ -1,0 +1,42 @@
+/*******************************************************************************
+ *	test_client_graphic.h
+ *
+ *  Test for the client graphic (console) interface
+ *
+ *
+ *  This file is part of PSD-IMS
+ * 
+ *  Copyright (C) 2015  Daniel Pinto Rivero, Javier Bermúdez Blanco
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ ********************************************************************************/
+#include "psd_ims_server.h"
+
+int main (){
+	int i=0;
+	psdims__user_list *friends = malloc(sizeof(psdims__user_list));
+	psdims__login_info *login = malloc(sizeof(psdims__login_info));
+	login->name = malloc(50);
+	strcat(login->name,"Antonio");
+	
+
+	psdims__get_friends(struct soap *soap,psdims__login_info *login, psdims__user_list *friends)
+	while(friends->user_info[i]!=NULL){
+		printf("%s\n",frieds->user_info[i]->name);
+		i++;
+	}
+
+return 0;
+}

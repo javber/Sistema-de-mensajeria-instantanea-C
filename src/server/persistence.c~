@@ -1,0 +1,1283 @@
+/*******************************************************************************
+ *	persistence.c
+ *
+ *  functionality to allow the server-side persistance of data
+ *
+ *
+ *  This file is part of PSD-IMS
+ * 
+ *  Copyright (C) 2015  Daniel Pinto Rivero, Javier Bermúdez Blanco
+ *
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 3 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ ********************************************************************************/
+
+#include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <mysql.h>
+#include "persistence.h"
+#include "bool.h"
+
+#include "debug_def.h"
+
+persistence * init_persistence(char user[],char pass[]){
+	DEBUG_TRACE_PRINT();
+	persistence *new_persistence;
+ 
+	if ( (new_persistence = malloc(sizeof(persistence)) ) == NULL ) {
+		DEBUG_FAILURE_PRINTF("Failed to initialize the persistance struct");
+		return NULL;
+	}
+
+  new_persistence->mysql = mysql_init(NULL);
+	if (new_persistence->mysql == NULL ) {
+		DEBUG_FAILURE_PRINTF("Failed to initialize the database struct");
+		return NULL;
+	}
+
+  if(!mysql_real_connect(new_persistence->mysql, "localhost", user, pass, "PSD", 0, NULL, 0)){
+		DEBUG_FAILURE_PRINTF("Failed to conect to the database");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(new_persistence->mysql)); 
+    return NULL;
+  }
+
+	new_persistence->location = malloc(sizeof(char)*20);
+	new_persistence->bd_name = malloc(sizeof(char)*4);
+	new_persistence->user_name = malloc(strlen(user)+sizeof(char));
+	new_persistence->user_pass = malloc(strlen(pass)+sizeof(char));
+
+	strcpy(new_persistence->location, "localhost");
+	strcpy(new_persistence->bd_name, "PSD");
+	strcpy(new_persistence->user_name, user);
+	strcpy(new_persistence->user_pass, pass);
+
+	return new_persistence;
+}
+
+
+void free_persistence(persistence *persistence) {
+	free(persistence->location);
+	free(persistence->bd_name);
+	free(persistence->user_name);
+	free(persistence->user_pass);
+	mysql_close(persistence->mysql);
+}
+
+
+int add_user(persistence* persistence, char* name, char* pass, char* information){
+  char consulta[500]="INSERT INTO users(NAME,PASS,INFORMATION) VALUES('";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+	if( (strlen(name) + strlen(pass) + strlen(information) + strlen(consulta)) >= (sizeof(char)*490) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta,name);
+  strcat(consulta,"','");
+  strcat(consulta,pass);
+  strcat(consulta,"','");
+  strcat(consulta,information);
+  strcat(consulta,"');");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+
+int del_user(persistence* persistence, char* name){
+  char consulta[200]="DELETE FROM users where NAME = '";
+  strcat(consulta,name);
+  strcat(consulta,"';");
+
+  if(persistence->mysql == NULL) {	
+	DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+  if((strlen(name) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+return 0;
+}
+
+int user_exist(persistence* persistence, char name[]){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+
+  char consulta[200]="SELECT * FROM users where NAME = '";
+  strcat(consulta,name);
+  strcat(consulta,"';");
+
+  if(persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+  if((strlen(name) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+  if( mysql_num_rows(mysql_store_result(persistence->mysql)) >= 1 ){
+	return 1;
+  }
+
+  return 0;
+}
+
+char* get_user_pass(persistence* persistence, char name[]){
+  DEBUG_TRACE_PRINT();
+  int resultado;
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+  char consulta[200]="SELECT PASS FROM users where NAME = '";
+ 
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return NULL;
+  }
+	if( (strlen(name) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return NULL;
+	}
+ 	
+  strcat(consulta,name);
+  strcat(consulta,"';");
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return NULL;
+	}
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+
+  return row[0];
+}
+
+int get_user_id(persistence* persistence, char name[]){
+  DEBUG_TRACE_PRINT();
+  int resultado;
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+  char consulta[200]="SELECT ID FROM users where NAME = '";
+ 
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+	if( (strlen(name) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 	
+  strcat(consulta,name);
+  strcat(consulta,"';");
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+
+  return atoi(row[0]);
+}
+
+int get_user_name(persistence* persistence, int user_id,char* buff){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  char str_id[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+  
+  sprintf(str_id, "%d", user_id);
+
+  char consulta[200]="SELECT NAME FROM users where ID = '";
+  strcat(consulta,str_id);
+  strcat(consulta,"';");
+
+  if(persistence->mysql == NULL) {	
+	DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+  if((strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+
+  strcpy(buff,row[0]);
+
+return 0;
+}
+
+int get_user_info(persistence* persistence, int user_id,char* buff){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  char str_id[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id, "%d", user_id);
+
+  char consulta[200]="SELECT INFORMATION FROM users where ID = '";
+  strcat(consulta,str_id);
+  strcat(consulta,"';");
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+	
+  strcpy(buff,row[0]);	
+
+return 0;
+}
+
+int get_id_admin_chat(persistence* persistence,int id_chat){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  char str_id[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id, "%d", id_chat);
+
+  char consulta[200]="SELECT ID_ADMIN FROM chats where ID = '";
+  strcat(consulta,str_id);
+  strcat(consulta,"';");
+
+  if(persistence->mysql == NULL) {	
+	DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+  if((strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if(mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+  return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+
+  return atoi(row[0]);
+}
+
+int get_chat_info(persistence* persistence, int chat_id,char* buff){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  char str_id[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id, "%d", chat_id);
+
+  char consulta[200]="SELECT DESCRIPTION FROM chats where ID = '";
+  strcat(consulta,str_id);
+  strcat(consulta,"';");
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+	
+  strcpy(buff,row[0]);	
+
+return 0;
+}
+
+int exist_user_in_chat(persistence* persistence,int user_id, int chat_id){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  int totalrows;
+  char str_id[20],str_chat[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id, "%d", user_id);
+  sprintf(str_chat, "%d", chat_id);
+
+  char consulta[200]="SELECT * FROM users_chats where (ID_USERS = ";
+  strcat(consulta,str_id);
+  strcat(consulta," AND ID_CHAT = ");
+  strcat(consulta,str_chat);
+  strcat(consulta,");");
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  totalrows = mysql_num_rows(res);
+	
+  if(totalrows==1)
+	return 1;
+  else
+ 	return 0;
+}
+
+int chat_exist(persistence* persistence, int chat_id){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  char str_chat[20];
+
+  sprintf(str_chat, "%d", chat_id);
+
+  char consulta[200]="SELECT * FROM chats where ID = '";
+  strcat(consulta,str_chat);
+  strcat(consulta,"';");
+
+  if(persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+  if((strlen(str_chat) + strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+  if( mysql_num_rows(mysql_store_result(persistence->mysql)) >= 1 ){
+	return 1;
+  }
+
+  return 0;
+}
+int get_list_friends(persistence* persistence,int user_id, int timestamp, struct soap *soap, psdims__user_list *friends){
+	DEBUG_TRACE_PRINT();
+
+	char str_id[20];
+	int resultado;
+	int i;
+	int j;
+	int k;
+	int totalrows;
+	int numfields;
+	char name[50];
+	char info[500];
+  	MYSQL_RES *res;
+  	MYSQL_ROW row;
+	
+	sprintf(str_id, "%d", user_id);	
+
+		// TODO "and CREATION_TIME > timestamp
+  	char consulta[200]="SELECT ID1,ID2 FROM friends where (ID1 = '"; 	
+  	strcat(consulta,str_id);
+  	strcat(consulta,"'OR ID2 = ");
+    strcat(consulta,str_id);
+  	strcat(consulta,");");	
+	
+  	if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    	return -1;
+  	}
+	if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 
+  	if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    	return -1;
+	}
+
+	// TODO check for errors here
+    res = mysql_store_result(persistence->mysql);
+    totalrows = mysql_num_rows(res);
+    numfields = mysql_num_fields(res);
+
+	friends->user = soap_malloc(soap, sizeof(psdims__user_info)*totalrows);
+	friends->__sizenelems=totalrows;
+	
+	j=0;
+	for(k=0;k<totalrows;k++){
+		row = mysql_fetch_row(res);
+		for(i = 0; i < numfields; i++){
+			   if(strcmp(row[i],str_id)!=0){
+					friends->user[j].name=soap_malloc(soap, sizeof(char)*50);
+					get_user_name(persistence,atoi(row[i]),name);
+					strcpy(friends->user[j].name,name);
+
+					friends->user[j].information=soap_malloc(soap, sizeof(char)*200);
+					get_user_info(persistence,atoi(row[i]),info);
+					strcpy(friends->user[j].information,info);
+				j++;
+				}
+		}
+	}
+
+return 0;
+}
+
+int get_member_list_chats(persistence* persistence,int chat_id, int timestamp, struct soap *soap, psdims__member_list *members){
+	DEBUG_TRACE_PRINT();
+
+	char str_id[20];
+	int resultado;
+	int i;
+	int id_admin;
+	int totalrows;
+	int numfields;
+	char name[50];
+	char info[500];
+  	MYSQL_RES *res;
+  	MYSQL_ROW row;
+	
+	sprintf(str_id, "%d", chat_id);	
+
+		// TODO "and CREATION_TIME > timestamp
+  	char consulta[200]="SELECT ID_USERS FROM users_chats where ID_CHAT = '"; 	
+  	strcat(consulta,str_id);
+  	strcat(consulta,"';");
+
+  	if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    	return -1;
+  	}
+	if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 
+  	if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    	return -1;
+	}
+
+	// TODO check for errors here
+    res = mysql_store_result(persistence->mysql);
+    totalrows = mysql_num_rows(res);
+
+	members->name = soap_malloc(soap, sizeof(psdims__string)*totalrows);
+	members->__sizenelems=totalrows;
+
+	for(i=0;i<totalrows;i++){
+		row = mysql_fetch_row(res);
+		get_user_name(persistence,atoi(row[0]),name);
+		members->name[i].string= soap_malloc(soap, strlen(name)+sizeof(char));
+		strcpy(members->name[i].string,name);
+		
+		
+	}
+	return 0;
+}
+
+int get_list_messages(persistence* persistence,int chat_id,int timestamp, struct soap *soap, psdims__message_list *messages){
+	DEBUG_TRACE_PRINT();
+
+	char str_id[20],str_time[20];
+	int resultado;
+	int k;
+	int totalrows;
+	int numfields;
+	char name[50];
+  	MYSQL_RES *res;
+  	MYSQL_ROW row;
+	
+	sprintf(str_id, "%d", chat_id);	
+	sprintf(str_time, "%d", timestamp);
+
+  	char consulta[200]="SELECT ID_SENDER,TEXT,CREATION_TIME FROM messages where (ID_CHAT = '"; 	
+  	strcat(consulta,str_id);
+  	strcat(consulta,"' AND CREATION_TIME > ");
+    strcat(consulta,str_time);
+  	strcat(consulta,");");	
+	
+  	if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    	return -1;
+  	}
+	if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 
+  	if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    	return -1;
+	}
+
+	// TODO check for errors here
+    res = mysql_store_result(persistence->mysql);
+    totalrows = mysql_num_rows(res);
+    numfields = mysql_num_fields(res);
+
+	messages->messages = soap_malloc(soap, sizeof(psdims__message_info)*totalrows);
+	messages->__sizenelems=totalrows;
+	
+	for(k=0;k<totalrows;k++){
+		row = mysql_fetch_row(res);
+
+		messages->messages[k].user= soap_malloc(soap, sizeof(char)*50);
+		get_user_name(persistence,atoi(row[0]),name);
+		strcpy(messages->messages[k].user,name);
+
+		messages->messages[k].text= soap_malloc(soap, sizeof(char)*200);
+		strcpy(messages->messages[k].text,row[1]);
+
+		messages->messages[k].send_date=atoi(row[2]);
+	}
+
+return 0;
+}
+
+int get_list_chats(persistence* persistence,int user_id, int timestamp, struct soap *soap, psdims__chat_list *chats){
+	DEBUG_TRACE_PRINT();
+
+	char str_id[20];
+	int resultado;
+	int i;
+	int id_admin;
+	int totalrows;
+	int numfields;
+	char name[50];
+	char info[500];
+  	MYSQL_RES *res;
+  	MYSQL_ROW row;
+	
+	sprintf(str_id, "%d", user_id);	
+
+	// TODO "and CREATION_TIME > timestamp
+  	char consulta[200]="SELECT ID_CHAT FROM users_chats where ID_USERS = "; 	
+  	strcat(consulta,str_id);
+  	strcat(consulta,";");	
+	
+  	if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    	return -1;
+  	}
+	if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 
+  	if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    	return -1;
+	}
+
+	// TODO check for errors here
+    res = mysql_store_result(persistence->mysql);
+    totalrows = mysql_num_rows(res);
+
+	chats->chat_info = soap_malloc(soap, sizeof(psdims__chat_info)*totalrows);
+	chats->__sizenelems=totalrows;
+	
+	for(i=0;i<totalrows;i++){
+		row = mysql_fetch_row(res);
+		chats->chat_info[i].chat_id=atoi(row[0]);
+		
+		printf("%s\n",row[0]);
+		chats->chat_info[i].admin= soap_malloc(soap, sizeof(char)*50);
+		id_admin=get_id_admin_chat(persistence,atoi(row[0]));
+		get_user_name(persistence,id_admin,name);
+		strcpy(chats->chat_info[i].admin,name);
+
+		chats->chat_info[i].description= soap_malloc(soap, sizeof(char)*200);
+		get_chat_info(persistence,atoi(row[0]),info);
+		strcpy(chats->chat_info[i].description,info);
+
+		chats->chat_info[i].members= soap_malloc(soap, sizeof(psdims__member_list));
+		get_member_list_chats(persistence,atoi(row[0]), timestamp, soap, chats->chat_info[i].members);
+
+	}
+
+return 0;
+}
+
+int send_messages(persistence* persistence, int chat_id, int timestamp, psdims__message_info *message){
+	DEBUG_TRACE_PRINT();
+
+	char str_id[20],str_chat[20],str_time[20];
+	int resultado;
+  	MYSQL_RES *res;
+  	MYSQL_ROW row;
+	
+	sprintf(str_id, "%d", get_user_id(persistence, message->user));
+	sprintf(str_chat, "%d", chat_id);
+	sprintf(str_time, "%d", timestamp);
+	
+  	char consulta[200]="INSERT INTO messages(ID_SENDER,ID_CHAT,FILE_,TEXT,CREATION_TIME) VALUES("; 	
+  	strcat(consulta,str_id);
+  	strcat(consulta,",");
+	strcat(consulta,str_chat);
+  	strcat(consulta,",");
+	strcat(consulta,"'null'");
+  	strcat(consulta,",'");
+	strcat(consulta,message->text);
+  	strcat(consulta,"',");
+	strcat(consulta,str_time);
+	strcat(consulta,");");
+
+  	if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    	return -1;
+  	}
+	if( ( strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+ 
+  	if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    	return -1;
+	}
+
+return 0;
+}
+
+int decline_friend_request(persistence* persistence, int user_id1, int user_id2){
+  char str_id1[10], str_id2[10]; 
+
+  char consulta[200]="DELETE FROM friends_request where (ID1 =";
+ 
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+
+	if( (strlen(str_id1) + strlen(str_id2) + strlen(consulta)) >= (sizeof(char)*170) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_id1);
+  strcat(consulta, " AND ID2_request = ");
+  strcat(consulta, str_id2);
+  strcat(consulta, ");");
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+
+int accept_friend_request(persistence* persistence, int user_id1, int user_id2, int timestamp){
+  char str_id1[10], str_id2[10]; 
+  char consulta[200]="INSERT INTO friends(ID1,ID2) VALUES(";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+
+	if( (strlen(str_id1) + strlen(str_id2) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_id1);
+  strcat(consulta, ",");
+  strcat(consulta, str_id2);
+  strcat(consulta, ");");
+
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+  
+	// TODO This is weird... FIX
+  decline_friend_request(persistence, user_id1, user_id2);
+
+	return 0;
+}
+
+
+int send_request(persistence* persistence, int user_id1, int user_id2, int timestamp){
+  char str_id1[10], str_id2[10],str_time[10]; 
+	// TODO add CREATION_TIME
+	char consulta[200]="INSERT INTO friends_request(ID1,ID2_request,CREATION_TIME) VALUES(";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+  sprintf(str_time, "%d", timestamp);
+
+	if( (strlen(str_id1) + strlen(str_id2) + strlen(str_time) + strlen(consulta)) >= (sizeof(char)*190) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_id1);
+  strcat(consulta, ",");
+  strcat(consulta, str_id2);
+  strcat(consulta, ",");
+  strcat(consulta, str_time);
+  strcat(consulta, ");");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+int exist_request(persistence* persistence,int user_id1, int user_id2){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  int totalrows;
+  char str_id1[20],str_id2[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+
+  char consulta[200]="SELECT * FROM friends_request where ((ID1 = ";
+  strcat(consulta,str_id1);
+  strcat(consulta," AND ID2_request = ");
+  strcat(consulta,str_id2);
+  strcat(consulta,") OR ");
+	
+  strcat(consulta,"( ID1 = ");
+  strcat(consulta,str_id2);
+  strcat(consulta," AND ID2_request = ");
+  strcat(consulta,str_id1);
+  strcat(consulta,"));");
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  if( (strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  totalrows = mysql_num_rows(res);
+	
+  if(totalrows==1)
+	return 1;
+  else
+ 	return 0;
+}
+
+int exist_friendly(persistence* persistence,int user_id1, int user_id2){
+  DEBUG_TRACE_PRINT();
+
+  int resultado;
+  int totalrows;
+  char str_id1[20],str_id2[20];
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+
+  char consulta[200]="SELECT * FROM friends where ((ID1 = ";
+  strcat(consulta,str_id1);
+  strcat(consulta," AND ID2 = ");
+  strcat(consulta,str_id2);
+  strcat(consulta,") OR ");
+	
+  strcat(consulta,"( ID1 = ");
+  strcat(consulta,str_id2);
+  strcat(consulta," AND ID2 = ");
+  strcat(consulta,str_id1);
+  strcat(consulta,"));");
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  if( (strlen(consulta)) >= (sizeof(char)*190) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+ 	
+  if( mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+  }
+
+	// TODO check for errors here
+  res = mysql_store_result(persistence->mysql);
+  totalrows = mysql_num_rows(res);
+	
+  if(totalrows==1)
+	return 1;
+  else
+ 	return 0;
+}
+
+int del_friends(persistence* persistence, int user_id1, int user_id2){
+  DEBUG_TRACE_PRINT();
+
+  char str_id1[10], str_id2[10]; 
+	char consulta[200]="DELETE FROM friends where (ID1 =";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id1, "%d", user_id1);
+  sprintf(str_id2, "%d", user_id2);
+
+	if( (strlen(str_id1) + strlen(str_id2) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_id1);
+  strcat(consulta, " AND ID2 = ");
+  strcat(consulta, str_id2);
+  strcat(consulta, ");");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+int add_user_chat(persistence* persistence, int user_id, int chat_id, int timestamp){
+  DEBUG_TRACE_PRINT();
+  char str_user_id[10], str_chat_id[10],str_time[10];
+	// TODO add CREATION_TIME
+	char consulta[200]="INSERT INTO users_chats(ID_USERS,ID_CHAT,CREATION_TIME) VALUES(";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_user_id, "%d", user_id);
+  sprintf(str_chat_id, "%d", chat_id);
+  sprintf(str_time, "%d", timestamp);
+
+	if( (strlen(str_user_id) + strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_user_id);
+  strcat(consulta, ",");
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ",");
+  strcat(consulta, str_time);
+  strcat(consulta, ");");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+int add_chat(persistence* persistence, int admin_id, char* description, int timestamp,int chat_id){
+  DEBUG_TRACE_PRINT();
+  char str_id[10],str_time[10];
+  MYSQL_RES *res;
+  MYSQL_ROW row;  
+	// TODO add CREATION_TIME
+	char consulta[200]="INSERT INTO chats(ID_ADMIN,DESCRIPTION,CREATION_TIME) VALUES(";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id, "%d", admin_id);
+  sprintf(str_time, "%d", timestamp);
+
+  strcat(consulta, str_id);
+  strcat(consulta, ",'");
+  strcat(consulta, description);
+  strcat(consulta, "',");
+  strcat(consulta, str_time);
+  strcat(consulta, ");");
+
+  if((strlen(str_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+	DEBUG_FAILURE_PRINTF("Query is too long to fit");
+	return -1;
+  }
+
+  
+  if(mysql_query(persistence->mysql, consulta) ) {
+	DEBUG_FAILURE_PRINTF("Query error");
+	DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+  return -1;
+  }
+
+  chat_id=mysql_insert_id(persistence->mysql);
+
+  if(add_user_chat(persistence,admin_id,mysql_insert_id(persistence->mysql),0)!=0)
+		return -1;
+  return 0;
+}
+
+int del_chat(persistence* persistence, int id_chat){
+  DEBUG_TRACE_PRINT();
+  char str_id[10];
+	char consulta[200]="DELETE FROM chats where ID = ";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_id, "%d", id_chat);
+
+	if( (strlen(str_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_id);
+  strcat(consulta, ";");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+
+
+int del_user_chat(persistence* persistence, int user_id, int chat_id){
+  DEBUG_TRACE_PRINT();
+  char str_user_id[10], str_chat_id[10]; 
+	char consulta[200]="DELETE FROM users_chats where (ID_USERS = ";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_user_id, "%d", user_id);
+  sprintf(str_chat_id, "%d", chat_id);
+
+	if( (strlen(str_user_id) + strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_user_id);
+  strcat(consulta, " AND ID_CHAT =");
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ");");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+int change_admin(persistence* persistence, int user_id, int chat_id){
+  DEBUG_TRACE_PRINT();
+  char str_user_id[10], str_chat_id[10]; 
+	char consulta[200]="UPDATE chats SET ID_ADMIN=";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_user_id, "%d", user_id);
+  sprintf(str_chat_id, "%d", chat_id);
+
+	if( (strlen(str_user_id) + strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+	}
+
+  strcat(consulta, str_user_id);
+  strcat(consulta, " where ID =");
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ";");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+	return 0;
+}
+
+int is_admin(persistence* persistence, int user_id, int chat_id){
+  DEBUG_TRACE_PRINT();
+  char str_user_id[10], str_chat_id[10];
+  MYSQL_RES *res;
+  MYSQL_ROW row; 
+  int totalrows;
+
+  char consulta[200]="SELECT * FROM chats where(ID_ADMIN=";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_user_id, "%d", user_id);
+  sprintf(str_chat_id, "%d", chat_id);
+
+  if( (strlen(str_user_id) + strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+  }
+
+  strcat(consulta, str_user_id);
+  strcat(consulta, " AND ID =");
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ");");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+  res = mysql_store_result(persistence->mysql);
+  totalrows = mysql_num_rows(res);
+	
+  if(totalrows==1)
+	return true;
+  else
+ 	return false;
+}
+
+int still_users_in_chat(persistence* persistence,int chat_id){
+  DEBUG_TRACE_PRINT();
+  char str_chat_id[10]; 
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+  int totalrows;
+
+  char consulta[200]="SELECT * FROM users_chats where ID_CHAT=";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_chat_id, "%d", chat_id);
+
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ";");
+
+  if( (strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+  }
+
+  
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+  res = mysql_store_result(persistence->mysql);
+  totalrows = mysql_num_rows(res);
+	
+  if(totalrows>=1)
+	return true;
+  else
+ 	return false;
+}
+
+
+int get_first_users_in_chat(persistence* persistence,int chat_id){
+  DEBUG_TRACE_PRINT();
+
+  char str_chat_id[10]; 
+  MYSQL_RES *res;
+  MYSQL_ROW row;
+  int totalrows;
+
+  char consulta[200]="SELECT * FROM users_chats where ID_CHAT=";
+
+  if (persistence->mysql == NULL) {	
+		DEBUG_FAILURE_PRINTF("DataBase is not initialized");
+    return -1;
+  }
+
+  sprintf(str_chat_id, "%d", chat_id);
+
+  if((strlen(str_chat_id) + strlen(consulta)) >= (sizeof(char)*180) ) {
+		DEBUG_FAILURE_PRINTF("Query is too long to fit");
+		return -1;
+  }
+
+  strcat(consulta, str_chat_id);
+  strcat(consulta, ";");
+
+  if( mysql_query(persistence->mysql, consulta) ) {
+		DEBUG_FAILURE_PRINTF("Query error");
+		DEBUG_FAILURE_PRINTF("MYSQL_ERROR: %s", mysql_error(persistence->mysql)); 
+    return -1;
+	}
+
+  res = mysql_store_result(persistence->mysql);
+  row = mysql_fetch_row(res);
+  totalrows = mysql_num_rows(res);
+
+  if(totalrows>=1)
+	return atoi(row[0]);
+  else
+ 	return -1;
+}
+
+

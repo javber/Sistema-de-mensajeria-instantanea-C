@@ -1,0 +1,13 @@
+TODO
+==========================
+- SSL support
+
+
+Client
+----------
+- Client command mode implementation
+- Persistence
+
+
+Server
+----------
